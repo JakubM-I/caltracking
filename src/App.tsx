@@ -24,6 +24,11 @@ function App() {
   const days = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart])
   const weekMeals = meals.filter((meal) => days.some((day) => meal.date === formatDate(day)))
   const totals = sumMeals(weekMeals)
+  const dailySummaries = days.map((day) => {
+    const date = formatDate(day)
+    return { date, day, totals: sumMeals(weekMeals.filter((meal) => meal.date === date)) }
+  })
+  const today = formatDate(new Date())
 
   useEffect(() => saveMeals(meals), [meals])
 
@@ -65,12 +70,20 @@ function App() {
       </section>
 
       <section className="day-tabs" aria-label="Wybór dnia">
-        {days.map((day) => {
-          const date = formatDate(day)
-          return <button key={date} className={date === selectedDate ? 'selected' : ''} onClick={() => setSelectedDate(date)}>
-            {new Intl.DateTimeFormat('pl-PL', { weekday: 'short', day: 'numeric' }).format(day)}
+        {dailySummaries.map(({ date, day, totals: dailyTotals }) => {
+          const className = [date === selectedDate && 'selected', date === today && 'today'].filter(Boolean).join(' ')
+          return <button key={date} className={className} aria-current={date === today ? 'date' : undefined} onClick={() => setSelectedDate(date)}>
+            {new Intl.DateTimeFormat('pl-PL', { weekday: 'short', day: 'numeric' }).format(day)} · {dailyTotals.calories} kcal
           </button>
         })}
+      </section>
+
+      <section className="daily-summaries" aria-label="Dzienne podsumowania tygodnia">
+        {dailySummaries.map(({ date, day, totals: dailyTotals }) => <button key={date} className={`daily-summary${date === selectedDate ? ' selected' : ''}${date === today ? ' today' : ''}`} onClick={() => setSelectedDate(date)}>
+          <span>{new Intl.DateTimeFormat('pl-PL', { weekday: 'long', day: 'numeric' }).format(day)}{date === today ? ' (dzisiaj)' : ''}</span>
+          <strong>{dailyTotals.calories} kcal</strong>
+          <small>B {dailyTotals.protein} g · T {dailyTotals.fat} g · W {dailyTotals.carbohydrates} g</small>
+        </button>)}
       </section>
 
       <section className="day-view" aria-labelledby="selected-day">
