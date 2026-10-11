@@ -11,6 +11,17 @@ npm install
 npm run dev
 ```
 
+## Kontrola jakości
+
+```bash
+npm run lint
+npm run test
+npm run build
+```
+
+Aplikacja zapisuje dane wyłącznie w pamięci lokalnej przeglądarki pod kluczem
+`caltracking.meals.v1` i nie wysyła ich przez sieć.
+
 Następnie otwórz adres podany przez Vite (domyślnie `http://localhost:5173`).
 
 ## Dostępne polecenia
