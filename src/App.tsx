@@ -1,18 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { addDays, dateLabel, formatDate, startOfWeek, weekLabel } from './date'
+import { emptyNutrition, sumMeals } from './nutrition'
 import { loadMeals, saveMeals } from './storage'
 import { mealSlots, type Meal, type MealSlot, type Nutrition } from './types'
-
-const emptyNutrition: Nutrition = { calories: 0, protein: 0, fat: 0, carbohydrates: 0 }
-
-function sumMeals(meals: Meal[]): Nutrition {
-  return meals.reduce<Nutrition>((total, meal) => ({
-    calories: total.calories + meal.calories,
-    protein: total.protein + meal.protein,
-    fat: total.fat + meal.fat,
-    carbohydrates: total.carbohydrates + meal.carbohydrates,
-  }), emptyNutrition)
-}
 
 function App() {
   const [meals, setMeals] = useState<Meal[]>(loadMeals)
@@ -67,9 +57,25 @@ function App() {
       <section className="day-tabs" aria-label="Wybór dnia">
         {days.map((day) => {
           const date = formatDate(day)
-          return <button key={date} className={date === selectedDate ? 'selected' : ''} onClick={() => setSelectedDate(date)}>
+          const dayTotals = sumMeals(meals.filter((meal) => meal.date === date))
+          const isToday = date === formatDate(new Date())
+          return <button key={date} className={`${date === selectedDate ? 'selected' : ''} ${isToday ? 'today' : ''}`} onClick={() => setSelectedDate(date)} aria-pressed={date === selectedDate}>
             {new Intl.DateTimeFormat('pl-PL', { weekday: 'short', day: 'numeric' }).format(day)}
+            <span>{dayTotals.calories} kcal</span>
           </button>
+        })}
+      </section>
+
+      <section className="daily-summary" aria-label="Podsumowania dni tygodnia">
+        {days.map((day) => {
+          const date = formatDate(day)
+          const dayTotals = sumMeals(meals.filter((meal) => meal.date === date))
+          const isToday = date === formatDate(new Date())
+          return <article className={isToday ? 'today' : ''} key={date}>
+            <h2>{new Intl.DateTimeFormat('pl-PL', { weekday: 'short', day: 'numeric', month: 'short' }).format(day)}</h2>
+            <strong>{dayTotals.calories} kcal</strong>
+            <p>B {dayTotals.protein} g · T {dayTotals.fat} g · W {dayTotals.carbohydrates} g</p>
+          </article>
         })}
       </section>
 
