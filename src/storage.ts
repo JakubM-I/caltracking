@@ -1,4 +1,4 @@
-import type { Meal } from './types'
+import { mealSlots, type Meal } from './types'
 
 const STORAGE_KEY = 'caltracking.meals.v1'
 
@@ -25,6 +25,9 @@ export function saveMeals(meals: Meal[]): boolean {
 function isMeal(value: unknown): value is Meal {
   if (typeof value !== 'object' || value === null) return false
   const item = value as Record<string, unknown>
-  return ['id', 'name', 'date', 'slot'].every((key) => typeof item[key] === 'string') &&
-    ['calories', 'protein', 'fat', 'carbohydrates'].every((key) => typeof item[key] === 'number')
+  return typeof item.id === 'string' && item.id.length > 0 &&
+    typeof item.name === 'string' && item.name.trim().length > 0 &&
+    typeof item.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.date) &&
+    typeof item.slot === 'string' && mealSlots.includes(item.slot as Meal['slot']) &&
+    ['calories', 'protein', 'fat', 'carbohydrates'].every((key) => typeof item[key] === 'number' && Number.isFinite(item[key]) && item[key] >= 0)
 }
