@@ -13,11 +13,12 @@ export function loadMeals(): Meal[] {
   }
 }
 
-export function saveMeals(meals: Meal[]): void {
+export function saveMeals(meals: Meal[]): boolean {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(meals))
+    return true
   } catch {
-    // Brak dostępu do zapisu nie powinien blokować korzystania z widoku.
+    return false
   }
 }
 
