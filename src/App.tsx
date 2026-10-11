@@ -24,6 +24,11 @@ function App() {
   const days = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart])
   const weekMeals = meals.filter((meal) => days.some((day) => meal.date === formatDate(day)))
   const totals = sumMeals(weekMeals)
+  const dailySummaries = days.map((day) => {
+    const date = formatDate(day)
+    return { date, day, totals: sumMeals(weekMeals.filter((meal) => meal.date === date)) }
+  })
+  const today = formatDate(new Date())
 
   useEffect(() => saveMeals(meals), [meals])
 
@@ -65,12 +70,20 @@ function App() {
       </section>
 
       <section className="day-tabs" aria-label="Wybór dnia">
-        {days.map((day) => {
-          const date = formatDate(day)
-          return <button key={date} className={date === selectedDate ? 'selected' : ''} onClick={() => setSelectedDate(date)}>
-            {new Intl.DateTimeFormat('pl-PL', { weekday: 'short', day: 'numeric' }).format(day)}
+        {dailySummaries.map(({ date, day, totals: dailyTotals }) => {
+          const className = [date === selectedDate && 'selected', date === today && 'today'].filter(Boolean).join(' ')
+          return <button key={date} className={className} aria-current={date === today ? 'date' : undefined} onClick={() => setSelectedDate(date)}>
+            {new Intl.DateTimeFormat('pl-PL', { weekday: 'short', day: 'numeric' }).format(day)} · {dailyTotals.calories} kcal
           </button>
         })}
+      </section>
+
+      <section className="daily-summaries" aria-label="Dzienne podsumowania tygodnia">
+        {dailySummaries.map(({ date, day, totals: dailyTotals }) => <button key={date} className={`daily-summary${date === selectedDate ? ' selected' : ''}${date === today ? ' today' : ''}`} onClick={() => setSelectedDate(date)}>
+          <span>{new Intl.DateTimeFormat('pl-PL', { weekday: 'long', day: 'numeric' }).format(day)}{date === today ? ' (dzisiaj)' : ''}</span>
+          <strong>{dailyTotals.calories} kcal</strong>
+          <small>B {dailyTotals.protein} g · T {dailyTotals.fat} g · W {dailyTotals.carbohydrates} g</small>
+        </button>)}
       </section>
 
       <section className="day-view" aria-labelledby="selected-day">
@@ -89,9 +102,27 @@ function MealGroup({ slot, meals, onEdit, onDelete }: { slot: MealSlot; meals: M
 
 function MealForm({ initialMeal, initialDate, onClose, onSave }: { initialMeal: Meal | null; initialDate: string; onClose: () => void; onSave: (meal: Meal) => void }) {
   const [form, setForm] = useState(() => initialMeal ?? { id: crypto.randomUUID(), name: '', date: initialDate, slot: 'Śniadanie' as MealSlot, ...emptyNutrition })
-  function submit(event: React.FormEvent<HTMLFormElement>) { event.preventDefault(); onSave(form) }
-  function updateNumber(key: keyof Nutrition, value: string) { setForm((current) => ({ ...current, [key]: Math.max(0, Number(value)) })) }
-  return <div className="dialog-backdrop" role="presentation"><form className="meal-form" onSubmit={submit}><div className="form-header"><h2>{initialMeal ? 'Edytuj posiłek' : 'Dodaj posiłek'}</h2><button type="button" onClick={onClose} aria-label="Zamknij formularz">×</button></div><label>Nazwa<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label><label>Dzień<input required type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} /></label><label>Pora<select value={form.slot} onChange={(event) => setForm({ ...form, slot: event.target.value as MealSlot })}>{mealSlots.map((slot) => <option key={slot}>{slot}</option>)}</select></label><div className="nutrition-fields">{([['calories', 'Kalorie (kcal)'], ['protein', 'Białko (g)'], ['fat', 'Tłuszcze (g)'], ['carbohydrates', 'Węglowodany (g)']] as const).map(([key, label]) => <label key={key}>{label}<input min="0" step="0.1" type="number" required value={form[key]} onChange={(event) => updateNumber(key, event.target.value)} /></label>)}</div><div className="form-actions"><button type="button" onClick={onClose}>Anuluj</button><button className="primary" type="submit">Zapisz posiłek</button></div></form></div>
+  const [error, setError] = useState('')
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const name = form.name.trim()
+    if (!name) {
+      setError('Podaj nazwę posiłku.')
+      return
+    }
+
+    onSave({ ...form, name })
+  }
+
+  function updateNumber(key: keyof Nutrition, value: string) {
+    const number = Number(value)
+    if (Number.isFinite(number) && number >= 0) {
+      setForm((current) => ({ ...current, [key]: number }))
+    }
+  }
+
+  return <div className="dialog-backdrop" role="presentation"><form className="meal-form" onSubmit={submit}><div className="form-header"><h2>{initialMeal ? 'Edytuj posiłek' : 'Dodaj posiłek'}</h2><button type="button" onClick={onClose} aria-label="Zamknij formularz">×</button></div><label>Nazwa<input required value={form.name} onChange={(event) => { setForm({ ...form, name: event.target.value }); setError('') }} /></label>{error && <p className="form-error" role="alert">{error}</p>}<label>Dzień<input required type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} /></label><label>Pora<select value={form.slot} onChange={(event) => setForm({ ...form, slot: event.target.value as MealSlot })}>{mealSlots.map((slot) => <option key={slot}>{slot}</option>)}</select></label><div className="nutrition-fields">{([['calories', 'Kalorie (kcal)'], ['protein', 'Białko (g)'], ['fat', 'Tłuszcze (g)'], ['carbohydrates', 'Węglowodany (g)']] as const).map(([key, label]) => <label key={key}>{label}<input min="0" step="0.1" type="number" required value={form[key]} onChange={(event) => updateNumber(key, event.target.value)} /></label>)}</div><div className="form-actions"><button type="button" onClick={onClose}>Anuluj</button><button className="primary" type="submit">Zapisz posiłek</button></div></form></div>
 }
 
 export default App
