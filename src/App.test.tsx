@@ -5,6 +5,7 @@ import App from './App'
 
 describe('rejestr posiłków', () => {
   beforeEach(() => {
+    localStorage.clear()
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000001')
   })
@@ -12,17 +13,19 @@ describe('rejestr posiłków', () => {
   it('pokazuje komunikaty dla nieprawidłowych danych formularza', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await user.click(screen.getByRole('button', { name: /dodaj posiłek/i }))
+    await user.click(screen.getByRole('button', { name: 'Dodaj posiłek' }))
     await user.clear(screen.getByLabelText('Kalorie (kcal)'))
     await user.click(screen.getByRole('button', { name: 'Zapisz posiłek' }))
     expect(screen.getByText('Podaj nazwę posiłku.')).toBeInTheDocument()
     expect(screen.getByText('Wpisz liczbę równą lub większą od zera.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Nazwa')).toHaveAccessibleDescription('Podaj nazwę posiłku.')
   })
 
-  it('pozwala dodać, edytować i usunąć posiłek', async () => {
+  it('pozwala dodać posiłek do wybranej pory, edytować go i usunąć', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await user.click(screen.getByRole('button', { name: /dodaj posiłek/i }))
+    await user.click(screen.getByRole('button', { name: 'Dodaj posiłek: Obiad' }))
+    expect(screen.getByRole('radio', { name: 'Obiad' })).toBeChecked()
     await user.type(screen.getByLabelText('Nazwa'), 'Owsianka')
     for (const [label, value] of [['Kalorie (kcal)', '400'], ['Białko (g)', '14'], ['Tłuszcze (g)', '10'], ['Węglowodany (g)', '65']] as const) {
       const input = screen.getByLabelText(label)
@@ -30,17 +33,19 @@ describe('rejestr posiłków', () => {
       await user.type(input, value)
     }
     await user.click(screen.getByRole('button', { name: 'Zapisz posiłek' }))
-    expect(screen.getByText('Owsianka')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Obiad' })).toHaveTextContent('Owsianka')
 
-    await user.click(screen.getByRole('button', { name: 'Edytuj' }))
+    await user.click(screen.getByRole('button', { name: /Owsianka/ }))
     const name = screen.getByLabelText('Nazwa')
     await user.clear(name)
     await user.type(name, 'Zupa')
     await user.click(screen.getByRole('button', { name: 'Zapisz posiłek' }))
     expect(screen.getByText('Zupa')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Usuń: Zupa' }))
-    expect(screen.queryByText('Zupa')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Zupa/ }))
+    await user.click(screen.getByRole('button', { name: 'Usuń' }))
     expect(window.confirm).toHaveBeenCalledWith('Usunąć posiłek „Zupa”?')
+    expect(screen.queryByText('Zupa')).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })

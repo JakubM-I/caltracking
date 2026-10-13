@@ -30,13 +30,4 @@ function isMeal(value: unknown): value is Meal {
     typeof item.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.date) &&
     typeof item.slot === 'string' && mealSlots.includes(item.slot as Meal['slot']) &&
     ['calories', 'protein', 'fat', 'carbohydrates'].every((key) => typeof item[key] === 'number' && Number.isFinite(item[key]) && item[key] >= 0)
-  const hasText = (key: string) => typeof item[key] === 'string' && item[key].trim().length > 0
-  const hasNutritionValue = (key: string) => typeof item[key] === 'number' &&
-    Number.isFinite(item[key]) && item[key] >= 0
-
-  return hasText('id') &&
-    hasText('name') &&
-    typeof item.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.date) &&
-    typeof item.slot === 'string' && mealSlots.includes(item.slot as Meal['slot']) &&
-    ['calories', 'protein', 'fat', 'carbohydrates'].every(hasNutritionValue)
 }
