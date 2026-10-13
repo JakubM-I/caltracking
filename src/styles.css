@@ -146,8 +146,11 @@ h1 { font-size: 1.375rem; font-weight: 650; line-height: 1.2; }
 .dialog-backdrop { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 16px; background: rgb(31 42 31 / .45); }
 .meal-form { width: min(100%, 520px); max-height: calc(100dvh - 32px); overflow: auto; padding: 20px 24px 24px; border-radius: 24px; background: var(--surface); box-shadow: 0 24px 48px rgb(0 0 0 / .18); }
 .sheet-handle { display: none; }
-.form-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.form-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
 .form-header h2 { font-size: 1.25rem; font-weight: 650; }
+.form-subtitle { margin-top: 2px; color: var(--muted); font-size: .8125rem; }
+.form-subtitle::first-letter { text-transform: uppercase; }
+.form-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
 .form-header .icon-button { background: #f1ede4; }
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 0 0 16px; padding: 0; border: 0; }
 .field > label, .field > legend { padding: 0; color: var(--ink-soft); font-size: .8125rem; font-weight: 600; }
@@ -169,9 +172,10 @@ h1 { font-size: 1.375rem; font-weight: 650; line-height: 1.2; }
 .slot-option input:checked + span { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); }
 .slot-option input:focus-visible + span { outline: 3px solid var(--brand); outline-offset: 2px; }
 .nutrition-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 12px; }
-.field-calories { grid-column: 1 / -1; }
 .form-error { margin-bottom: 16px; padding: 10px 14px; border-radius: 12px; background: var(--danger-soft); color: var(--danger); font-size: .875rem; font-weight: 600; }
-.form-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.form-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.keyboard-hint { margin-right: auto; color: var(--muted); font-size: .75rem; }
+.keyboard-hint kbd { padding: 1px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface-muted); font: inherit; font-size: .7rem; }
 
 @media (max-width: 959px) {
   .app-shell { max-width: 720px; padding: 20px 16px 104px; }
@@ -198,6 +202,8 @@ h1 { font-size: 1.375rem; font-weight: 650; line-height: 1.2; }
   .legend-note { margin-left: 0; width: 100%; }
   .dialog-backdrop { place-items: end stretch; padding: 0; }
   .meal-form { width: 100%; max-height: 92dvh; padding: 12px 20px 24px; border-radius: 28px 28px 0 0; }
+  .form-row { grid-template-columns: 1fr; }
+  .keyboard-hint { display: none; }
   .sheet-handle { display: block; width: 40px; height: 4px; margin: 0 auto 12px; border-radius: 999px; background: #ddd8cc; }
   .form-actions .primary { flex: 2; }
   .form-actions .secondary { flex: 1; }

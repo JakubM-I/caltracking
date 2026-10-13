@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { dateLabel } from './date'
 import { emptyNutrition } from './nutrition'
 import { mealSlots, type Meal, type MealSlot, type Nutrition } from './types'
 
@@ -68,13 +69,34 @@ export function MealForm({ initialMeal, preset, onClose, onSave, onDelete }: Mea
   }
 
   const hasErrors = Object.values(errors).some(Boolean)
+  const hasValidDate = /^\d{4}-\d{2}-\d{2}$/.test(draft.date)
+  const [caloriesField, ...macroFields] = nutritionFields
+
+  function renderNutritionField({ key, label, unit }: (typeof nutritionFields)[number]) {
+    return (
+      <div key={key} className="field">
+        <label htmlFor={`meal-${key}`}>
+          {key !== 'calories' && <span className={`dot dot-${key}`} aria-hidden="true" />}
+          {label}<span className="visually-hidden"> ({unit})</span>
+        </label>
+        <div className="input-with-unit">
+          <input id={`meal-${key}`} min="0" step="0.1" type="number" inputMode="decimal" value={draft[key]} onChange={(event) => updateField(key, event.target.value)} aria-invalid={Boolean(errors[key])} aria-describedby={errors[key] ? `meal-${key}-error` : undefined} />
+          <span aria-hidden="true">{unit}</span>
+        </div>
+        {errors[key] && <span className="field-error" id={`meal-${key}-error`}>{errors[key]}</span>}
+      </div>
+    )
+  }
 
   return (
     <div className="dialog-backdrop" role="presentation" onClick={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <form className="meal-form" onSubmit={submit} role="dialog" aria-modal="true" aria-labelledby="meal-form-title" noValidate>
         <div className="sheet-handle" aria-hidden="true" />
         <div className="form-header">
-          <h2 id="meal-form-title">{initialMeal ? 'Edytuj posiłek' : 'Dodaj posiłek'}</h2>
+          <div>
+            <h2 id="meal-form-title">{initialMeal ? 'Edytuj posiłek' : 'Dodaj posiłek'}</h2>
+            <p className="form-subtitle">{hasValidDate && `${dateLabel(new Date(`${draft.date}T12:00:00`))} · `}{draft.slot}</p>
+          </div>
           <button type="button" className="icon-button" onClick={onClose} aria-label="Zamknij formularz">×</button>
         </div>
 
@@ -96,31 +118,23 @@ export function MealForm({ initialMeal, preset, onClose, onSave, onDelete }: Mea
           </div>
         </fieldset>
 
-        <div className="field">
-          <label htmlFor="meal-date">Dzień</label>
-          <input id="meal-date" type="date" value={draft.date} onChange={(event) => updateField('date', event.target.value)} aria-invalid={Boolean(errors.date)} aria-describedby={errors.date ? 'meal-date-error' : undefined} />
-          {errors.date && <span className="field-error" id="meal-date-error">{errors.date}</span>}
+        <div className="form-row">
+          <div className="field">
+            <label htmlFor="meal-date">Dzień</label>
+            <input id="meal-date" type="date" value={draft.date} onChange={(event) => updateField('date', event.target.value)} aria-invalid={Boolean(errors.date)} aria-describedby={errors.date ? 'meal-date-error' : undefined} />
+            {errors.date && <span className="field-error" id="meal-date-error">{errors.date}</span>}
+          </div>
+          {renderNutritionField(caloriesField)}
         </div>
 
         <div className="nutrition-fields">
-          {nutritionFields.map(({ key, label, unit }) => (
-            <div key={key} className={`field field-${key}`}>
-              <label htmlFor={`meal-${key}`}>
-                {key !== 'calories' && <span className={`dot dot-${key}`} aria-hidden="true" />}
-                {label}<span className="visually-hidden"> ({unit})</span>
-              </label>
-              <div className="input-with-unit">
-                <input id={`meal-${key}`} min="0" step="0.1" type="number" inputMode="decimal" value={draft[key]} onChange={(event) => updateField(key, event.target.value)} aria-invalid={Boolean(errors[key])} aria-describedby={errors[key] ? `meal-${key}-error` : undefined} />
-                <span aria-hidden="true">{unit}</span>
-              </div>
-              {errors[key] && <span className="field-error" id={`meal-${key}-error`}>{errors[key]}</span>}
-            </div>
-          ))}
+          {macroFields.map(renderNutritionField)}
         </div>
 
         {hasErrors && <p className="form-error" role="alert">Popraw pola oznaczone komunikatem.</p>}
 
         <div className="form-actions">
+          {!initialMeal && <span className="keyboard-hint" aria-hidden="true"><kbd>Esc</kbd> zamyka</span>}
           {initialMeal && <button type="button" className="danger" onClick={() => onDelete(initialMeal)}>Usuń</button>}
           <button type="button" className="secondary" onClick={onClose}>Anuluj</button>
           <button className="primary" type="submit">Zapisz posiłek</button>
