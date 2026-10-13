@@ -25,6 +25,7 @@ export function dateLabel(date: Date): string {
 
 export function weekLabel(start: Date): string {
   const end = addDays(start, 6)
-  const formatter = new Intl.DateTimeFormat('pl-PL', { day: 'numeric', month: 'short' })
-  return `${formatter.format(start)} – ${formatter.format(end)}`
+  const month = new Intl.DateTimeFormat('pl-PL', { month: 'short' })
+  if (start.getMonth() === end.getMonth()) return `${start.getDate()}–${end.getDate()} ${month.format(end)}`
+  return `${start.getDate()} ${month.format(start)} – ${end.getDate()} ${month.format(end)}`
 }

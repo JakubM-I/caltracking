@@ -1,170 +1,274 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
 import { addDays, dateLabel, formatDate, startOfWeek, weekLabel } from './date'
-import { emptyNutrition, sumMeals } from './nutrition'
+import { MealForm, type MealPreset } from './MealForm'
+import { sumMeals } from './nutrition'
 import { loadMeals, saveMeals } from './storage'
 import { mealSlots, type Meal, type MealSlot, type Nutrition } from './types'
 
-const nutritionFields = [['calories', 'Kalorie (kcal)'], ['protein', 'Białko (g)'], ['fat', 'Tłuszcze (g)'], ['carbohydrates', 'Węglowodany (g)']] as const
-type NutritionKey = keyof Nutrition
-type MealDraft = Omit<Meal, NutritionKey> & Record<NutritionKey, string>
-type FormErrors = Partial<Record<keyof MealDraft, string>>
+const DESKTOP_QUERY = '(min-width: 960px)'
+const numberFormat = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 1 })
+const format = (value: number) => numberFormat.format(value)
+const weekdayFormat = new Intl.DateTimeFormat('pl-PL', { weekday: 'short' })
+const weekdayLongFormat = new Intl.DateTimeFormat('pl-PL', { weekday: 'long' })
 
-function toDraft(meal: Meal | null, date: string): MealDraft {
-  const source = meal ?? { id: crypto.randomUUID(), name: '', date, slot: 'Śniadanie' as MealSlot, ...emptyNutrition }
-  return { ...source, calories: String(source.calories), protein: String(source.protein), fat: String(source.fat), carbohydrates: String(source.carbohydrates) }
+function useMediaQuery(query: string) {
+  const subscribe = useCallback((onChange: () => void) => {
+    if (typeof window.matchMedia !== 'function') return () => {}
+    const media = window.matchMedia(query)
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+  }, [query])
+  return useSyncExternalStore(subscribe, () => typeof window.matchMedia === 'function' && window.matchMedia(query).matches, () => false)
 }
 
-function validateDraft(draft: MealDraft): FormErrors {
-  const errors: FormErrors = {}
-  if (!draft.name.trim()) errors.name = 'Podaj nazwę posiłku.'
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date)) errors.date = 'Wybierz poprawny dzień.'
-  nutritionFields.forEach(([key]) => {
-    const value = Number(draft[key])
-    if (draft[key].trim() === '' || !Number.isFinite(value) || value < 0) errors[key] = 'Wpisz liczbę równą lub większą od zera.'
-  })
-  return errors
-}
-
-function mealFromDraft(draft: MealDraft): Meal {
-  return { ...draft, name: draft.name.trim(), calories: Number(draft.calories), protein: Number(draft.protein), fat: Number(draft.fat), carbohydrates: Number(draft.carbohydrates) }
+interface DaySummary {
+  date: string
+  day: Date
+  meals: Meal[]
+  totals: Nutrition
 }
 
 function App() {
   const [meals, setMeals] = useState<Meal[]>(loadMeals)
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
   const [selectedDate, setSelectedDate] = useState(() => formatDate(new Date()))
-  const [isFormOpen, setIsFormOpen] = useState(false)
-  const [editingMeal, setEditingMeal] = useState<Meal | null>(null)
+  const [form, setForm] = useState<{ meal: Meal | null; preset: MealPreset } | null>(null)
   const [saveMessage, setSaveMessage] = useState('')
-  const days = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart])
-  const weekMeals = meals.filter((meal) => days.some((day) => meal.date === formatDate(day)))
-  const totals = sumMeals(weekMeals)
-  const dailySummaries = days.map((day) => {
-    const date = formatDate(day)
-    return { date, day, totals: sumMeals(weekMeals.filter((meal) => meal.date === date)) }
-  })
+  const isDesktop = useMediaQuery(DESKTOP_QUERY)
   const today = formatDate(new Date())
+
+  const days = useMemo<DaySummary[]>(() => Array.from({ length: 7 }, (_, index) => {
+    const day = addDays(weekStart, index)
+    const date = formatDate(day)
+    const dayMeals = meals.filter((meal) => meal.date === date)
+    return { date, day, meals: dayMeals, totals: sumMeals(dayMeals) }
+  }), [meals, weekStart])
+  const weekTotals = sumMeals(days.flatMap((day) => day.meals))
+  const selectedDay = days.find((day) => day.date === selectedDate) ?? days[0]
 
   function updateMeals(nextMeals: Meal[]) {
     setMeals(nextMeals)
     setSaveMessage(saveMeals(nextMeals) ? '' : 'Nie udało się zapisać zmian w pamięci przeglądarki. Dane pozostają widoczne do zamknięcia strony.')
   }
 
-  function showForm(meal?: Meal) {
-    setEditingMeal(meal ?? null)
+  function openForm(meal: Meal | null, preset: MealPreset = { date: selectedDate }) {
     if (meal) setSelectedDate(meal.date)
-    setIsFormOpen(true)
+    setForm({ meal, preset })
   }
+  const closeForm = useCallback(() => setForm(null), [])
+
   function saveMeal(meal: Meal) {
-    updateMeals(editingMeal ? meals.map((item) => item.id === meal.id ? meal : item) : [...meals, meal])
-    setIsFormOpen(false)
-  }
-  function deleteMeal(meal: Meal) {
-    if (window.confirm(`Usunąć posiłek „${meal.name}”?`)) updateMeals(meals.filter((item) => item.id !== meal.id))
-  }
-  function changeWeek(offset: number) {
-    const next = addDays(weekStart, offset * 7)
-    setWeekStart(next)
-    setSelectedDate(formatDate(next))
+    updateMeals(form?.meal ? meals.map((item) => item.id === meal.id ? meal : item) : [...meals, meal])
+    setSelectedDate(meal.date)
+    const mealWeek = startOfWeek(new Date(`${meal.date}T12:00:00`))
+    if (mealWeek.getTime() !== weekStart.getTime()) setWeekStart(mealWeek)
+    setForm(null)
   }
 
-  return <main className="app-shell">
-    <header className="app-header"><div><p className="eyebrow">TWÓJ DZIENNIK</p><h1>CalTracking</h1></div><button className="primary" onClick={() => showForm()}>+ Dodaj posiłek</button></header>
-    {saveMessage && <p className="status-message" role="alert">{saveMessage}</p>}
-    <section className="week-navigation" aria-label="Nawigacja po tygodniach"><button onClick={() => changeWeek(-1)} aria-label="Poprzedni tydzień">←</button><strong>{weekLabel(weekStart)}</strong><button onClick={() => changeWeek(1)} aria-label="Następny tydzień">→</button></section>
-    <NutritionSummary totals={totals} />
-    <section className="day-tabs" aria-label="Wybór dnia">{days.map((day) => {
-      const date = formatDate(day); const dayTotals = sumMeals(meals.filter((meal) => meal.date === date)); const isToday = date === formatDate(new Date())
-      return <button key={date} className={`${date === selectedDate ? 'selected' : ''} ${isToday ? 'today' : ''}`} onClick={() => setSelectedDate(date)} aria-pressed={date === selectedDate}>{new Intl.DateTimeFormat('pl-PL', { weekday: 'short', day: 'numeric' }).format(day)}<span>{dayTotals.calories} kcal</span></button>
-    })}</section>
-    <section className="daily-summary" aria-label="Podsumowania dni tygodnia">{days.map((day) => {
-      const date = formatDate(day); const dayTotals = sumMeals(meals.filter((meal) => meal.date === date)); const isToday = date === formatDate(new Date())
-      return <article className={isToday ? 'today' : ''} key={date}><h2>{new Intl.DateTimeFormat('pl-PL', { weekday: 'short', day: 'numeric', month: 'short' }).format(day)}</h2><strong>{dayTotals.calories} kcal</strong><p>B {dayTotals.protein} g · T {dayTotals.fat} g · W {dayTotals.carbohydrates} g</p></article>
-    })}</section>
-    <section className="day-view" aria-labelledby="selected-day"><h2 id="selected-day">{dateLabel(new Date(`${selectedDate}T12:00:00`))}</h2>{mealSlots.map((slot) => <MealGroup key={slot} slot={slot} meals={meals.filter((meal) => meal.date === selectedDate && meal.slot === slot)} onEdit={showForm} onDelete={deleteMeal} />)}</section>
-    {isFormOpen && <MealForm initialMeal={editingMeal} initialDate={selectedDate} onClose={() => setIsFormOpen(false)} onSave={saveMeal} />}
-  </main>
+  function deleteMeal(meal: Meal) {
+    if (!window.confirm(`Usunąć posiłek „${meal.name}”?`)) return
+    updateMeals(meals.filter((item) => item.id !== meal.id))
+    setForm(null)
+  }
+
+  function showWeek(start: Date, date = formatDate(start)) {
+    setWeekStart(start)
+    setSelectedDate(date)
+  }
+
   return (
-    <main className="app-shell">
+    <div className="app-shell">
       <header className="app-header">
-        <div><p className="eyebrow">TWÓJ DZIENNIK</p><h1>CalTracking</h1></div>
-        <button className="primary" onClick={() => showForm()}>+ Dodaj posiłek</button>
+        <div className="brand">
+          <span className="brand-mark" aria-hidden="true">C</span>
+          <div>
+            <p className="eyebrow">Twój dziennik</p>
+            <h1>CalTracking</h1>
+          </div>
+        </div>
+
+        <nav className="week-navigation" aria-label="Nawigacja po tygodniach">
+          <button className="icon-button" onClick={() => showWeek(addDays(weekStart, -7))} aria-label="Poprzedni tydzień">‹</button>
+          <strong aria-live="polite">{weekLabel(weekStart)}</strong>
+          <button className="icon-button" onClick={() => showWeek(addDays(weekStart, 7))} aria-label="Następny tydzień">›</button>
+          <button className="today-button" onClick={() => showWeek(startOfWeek(new Date()), today)}>Dziś</button>
+        </nav>
+
+        <button className="primary add-button" onClick={() => openForm(null)}><span aria-hidden="true">+</span> Dodaj posiłek</button>
       </header>
 
-      <section className="week-navigation" aria-label="Nawigacja po tygodniach">
-        <button onClick={() => changeWeek(-1)} aria-label="Poprzedni tydzień">←</button>
-        <strong>{weekLabel(weekStart)}</strong>
-        <button onClick={() => changeWeek(1)} aria-label="Następny tydzień">→</button>
-      </section>
+      <main className="app-main">
+        {saveMessage && <p className="status-message" role="alert">{saveMessage}</p>}
 
-      <section className="summary" aria-label="Podsumowanie tygodnia">
-        <div><span>Kalorie</span><strong>{totals.calories} kcal</strong></div>
-        <div><span>Białko</span><strong>{totals.protein} g</strong></div>
-        <div><span>Tłuszcze</span><strong>{totals.fat} g</strong></div>
-        <div><span>Węglowodany</span><strong>{totals.carbohydrates} g</strong></div>
-      </section>
+        <WeekSummary totals={weekTotals} />
 
-      <section className="day-tabs" aria-label="Wybór dnia">
-        {dailySummaries.map(({ date, day, totals: dailyTotals }) => {
-          const className = [date === selectedDate && 'selected', date === today && 'today'].filter(Boolean).join(' ')
-          return <button key={date} className={className} aria-current={date === today ? 'date' : undefined} onClick={() => setSelectedDate(date)}>
-            {new Intl.DateTimeFormat('pl-PL', { weekday: 'short', day: 'numeric' }).format(day)} · {dailyTotals.calories} kcal
-          </button>
-        })}
-      </section>
+        {isDesktop
+          ? <WeekPlanner days={days} today={today} selectedDate={selectedDate} onSelect={setSelectedDate} onEdit={(meal) => openForm(meal)} onAdd={(preset) => openForm(null, preset)} />
+          : <>
+            <DayStrip days={days} today={today} selectedDate={selectedDay.date} onSelect={setSelectedDate} />
+            <DayView day={selectedDay} isToday={selectedDay.date === today} onEdit={(meal) => openForm(meal)} onAdd={(slot) => openForm(null, { date: selectedDay.date, slot })} />
+          </>}
 
-      <section className="daily-summaries" aria-label="Dzienne podsumowania tygodnia">
-        {dailySummaries.map(({ date, day, totals: dailyTotals }) => <button key={date} className={`daily-summary${date === selectedDate ? ' selected' : ''}${date === today ? ' today' : ''}`} onClick={() => setSelectedDate(date)}>
-          <span>{new Intl.DateTimeFormat('pl-PL', { weekday: 'long', day: 'numeric' }).format(day)}{date === today ? ' (dzisiaj)' : ''}</span>
-          <strong>{dailyTotals.calories} kcal</strong>
-          <small>B {dailyTotals.protein} g · T {dailyTotals.fat} g · W {dailyTotals.carbohydrates} g</small>
-        </button>)}
-      </section>
+        <p className="legend">
+          <span><span className="dot dot-protein" aria-hidden="true" />Białko</span>
+          <span><span className="dot dot-fat" aria-hidden="true" />Tłuszcze</span>
+          <span><span className="dot dot-carbohydrates" aria-hidden="true" />Węglowodany</span>
+          <span className="legend-note">Dane zapisywane lokalnie w przeglądarce</span>
+        </p>
+      </main>
 
-      <section className="day-view" aria-labelledby="selected-day">
-        <h2 id="selected-day">{dateLabel(new Date(`${selectedDate}T12:00:00`))}</h2>
-        {mealSlots.map((slot) => <MealGroup key={slot} slot={slot} meals={meals.filter((meal) => meal.date === selectedDate && meal.slot === slot)} onEdit={showForm} onDelete={(id) => setMeals((current) => current.filter((meal) => meal.id !== id))} />)}
-      </section>
-
-      {isFormOpen && <MealForm initialMeal={editingMeal} initialDate={selectedDate} onClose={() => setIsFormOpen(false)} onSave={saveMeal} />}
-    </main>
+      {form && <MealForm initialMeal={form.meal} preset={form.preset} onClose={closeForm} onSave={saveMeal} onDelete={deleteMeal} />}
+    </div>
   )
 }
 
-function NutritionSummary({ totals }: { totals: Nutrition }) {
-  return <section className="summary" aria-label="Podsumowanie tygodnia"><div><span>Kalorie</span><strong>{totals.calories} kcal</strong></div><div><span>Białko</span><strong>{totals.protein} g</strong></div><div><span>Tłuszcze</span><strong>{totals.fat} g</strong></div><div><span>Węglowodany</span><strong>{totals.carbohydrates} g</strong></div></section>
+function MacroBar({ totals }: { totals: Nutrition }) {
+  const sum = totals.protein + totals.fat + totals.carbohydrates
+  return (
+    <div className="macro-bar" aria-hidden="true">
+      {sum > 0 && (['protein', 'fat', 'carbohydrates'] as const).map((key) => <span key={key} className={`macro-${key}`} style={{ width: `${(totals[key] / sum) * 100}%` }} />)}
+    </div>
+  )
 }
-function MealGroup({ slot, meals, onEdit, onDelete }: { slot: MealSlot; meals: Meal[]; onEdit: (meal: Meal) => void; onDelete: (meal: Meal) => void }) {
-  return <section className="meal-group"><h3>{slot}</h3>{meals.length === 0 ? <p className="empty">Brak zapisanych posiłków</p> : meals.map((meal) => <article className="meal-card" key={meal.id}><div><strong>{meal.name}</strong><p>{meal.calories} kcal · B {meal.protein} g · T {meal.fat} g · W {meal.carbohydrates} g</p></div><div className="meal-actions"><button onClick={() => onEdit(meal)}>Edytuj</button><button onClick={() => onDelete(meal)} aria-label={`Usuń: ${meal.name}`}>Usuń</button></div></article>)}</section>
+
+function macroText(totals: Nutrition, compact = false) {
+  if (compact) return `B ${format(totals.protein)} · T ${format(totals.fat)} · W ${format(totals.carbohydrates)} g`
+  return `B ${format(totals.protein)} g · T ${format(totals.fat)} g · W ${format(totals.carbohydrates)} g`
 }
-function MealForm({ initialMeal, initialDate, onClose, onSave }: { initialMeal: Meal | null; initialDate: string; onClose: () => void; onSave: (meal: Meal) => void }) {
-  const [draft, setDraft] = useState(() => toDraft(initialMeal, initialDate)); const [errors, setErrors] = useState<FormErrors>({})
-  useEffect(() => { const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }; window.addEventListener('keydown', closeOnEscape); return () => window.removeEventListener('keydown', closeOnEscape) }, [onClose])
-  function updateField<Key extends keyof MealDraft>(key: Key, value: MealDraft[Key]) { setDraft((current) => ({ ...current, [key]: value })); setErrors((current) => ({ ...current, [key]: undefined })) }
-  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const nextErrors = validateDraft(draft); setErrors(nextErrors); if (Object.keys(nextErrors).length === 0) onSave(mealFromDraft(draft)) }
-  return <div className="dialog-backdrop" role="presentation"><form className="meal-form" onSubmit={submit} role="dialog" aria-modal="true" aria-labelledby="meal-form-title" noValidate><div className="form-header"><h2 id="meal-form-title">{initialMeal ? 'Edytuj posiłek' : 'Dodaj posiłek'}</h2><button type="button" onClick={onClose} aria-label="Zamknij formularz">×</button></div><FormField label="Nazwa" error={errors.name}><input autoFocus value={draft.name} onChange={(event) => updateField('name', event.target.value)} aria-invalid={Boolean(errors.name)} /></FormField><FormField label="Dzień" error={errors.date}><input type="date" value={draft.date} onChange={(event) => updateField('date', event.target.value)} aria-invalid={Boolean(errors.date)} /></FormField><label>Pora<select value={draft.slot} onChange={(event) => updateField('slot', event.target.value as MealSlot)}>{mealSlots.map((slot) => <option key={slot}>{slot}</option>)}</select></label><div className="nutrition-fields">{nutritionFields.map(([key, label]) => <FormField key={key} label={label} error={errors[key]}><input min="0" step="0.1" type="number" inputMode="decimal" value={draft[key]} onChange={(event) => updateField(key, event.target.value)} aria-invalid={Boolean(errors[key])} /></FormField>)}</div>{Object.keys(errors).length > 0 && <p className="form-error" role="alert">Popraw pola oznaczone komunikatem.</p>}<div className="form-actions"><button type="button" onClick={onClose}>Anuluj</button><button className="primary" type="submit">Zapisz posiłek</button></div></form></div>
-  const [form, setForm] = useState(() => initialMeal ?? { id: crypto.randomUUID(), name: '', date: initialDate, slot: 'Śniadanie' as MealSlot, ...emptyNutrition })
-  const [error, setError] = useState('')
 
-  function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const name = form.name.trim()
-    if (!name) {
-      setError('Podaj nazwę posiłku.')
-      return
-    }
-
-    onSave({ ...form, name })
-  }
-
-  function updateNumber(key: keyof Nutrition, value: string) {
-    const number = Number(value)
-    if (Number.isFinite(number) && number >= 0) {
-      setForm((current) => ({ ...current, [key]: number }))
-    }
-  }
-
-  return <div className="dialog-backdrop" role="presentation"><form className="meal-form" onSubmit={submit}><div className="form-header"><h2>{initialMeal ? 'Edytuj posiłek' : 'Dodaj posiłek'}</h2><button type="button" onClick={onClose} aria-label="Zamknij formularz">×</button></div><label>Nazwa<input required value={form.name} onChange={(event) => { setForm({ ...form, name: event.target.value }); setError('') }} /></label>{error && <p className="form-error" role="alert">{error}</p>}<label>Dzień<input required type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} /></label><label>Pora<select value={form.slot} onChange={(event) => setForm({ ...form, slot: event.target.value as MealSlot })}>{mealSlots.map((slot) => <option key={slot}>{slot}</option>)}</select></label><div className="nutrition-fields">{([['calories', 'Kalorie (kcal)'], ['protein', 'Białko (g)'], ['fat', 'Tłuszcze (g)'], ['carbohydrates', 'Węglowodany (g)']] as const).map(([key, label]) => <label key={key}>{label}<input min="0" step="0.1" type="number" required value={form[key]} onChange={(event) => updateNumber(key, event.target.value)} /></label>)}</div><div className="form-actions"><button type="button" onClick={onClose}>Anuluj</button><button className="primary" type="submit">Zapisz posiłek</button></div></form></div>
+function WeekSummary({ totals }: { totals: Nutrition }) {
+  return (
+    <section className="week-summary" aria-labelledby="week-summary-title">
+      <div className="summary-card summary-calories">
+        <h2 id="week-summary-title">Kalorie w tym tygodniu</h2>
+        <p className="summary-value">{format(totals.calories)} <span>kcal</span></p>
+        <MacroBar totals={totals} />
+      </div>
+      {([['protein', 'Białko'], ['fat', 'Tłuszcze'], ['carbohydrates', 'Węglowodany']] as const).map(([key, label]) => (
+        <div key={key} className="summary-card">
+          <h3><span className={`dot dot-${key}`} aria-hidden="true" />{label}</h3>
+          <p className="summary-value">{format(totals[key])} <span>g</span></p>
+        </div>
+      ))}
+    </section>
+  )
 }
-function FormField({ label, error, children }: { label: string; error?: string; children: ReactNode }) { return <label>{label}{children}{error && <span className="field-error">{error}</span>}</label> }
+
+interface WeekPlannerProps {
+  days: DaySummary[]
+  today: string
+  selectedDate: string
+  onSelect: (date: string) => void
+  onEdit: (meal: Meal) => void
+  onAdd: (preset: MealPreset) => void
+}
+
+function WeekPlanner({ days, today, selectedDate, onSelect, onEdit, onAdd }: WeekPlannerProps) {
+  return (
+    <section className="week-planner" aria-label="Posiłki w tygodniu">
+      <table>
+        <thead>
+          <tr>
+            <td />
+            {days.map(({ date, day, totals }) => (
+              <th key={date} scope="col" className={[date === today && 'today', date === selectedDate && 'selected'].filter(Boolean).join(' ')}>
+                <button className="day-heading" onClick={() => onSelect(date)} aria-pressed={date === selectedDate} aria-current={date === today ? 'date' : undefined}>
+                  <span className="day-heading-top">
+                    <span className="day-name">{weekdayLongFormat.format(day)}</span>
+                    <span className="day-number">{day.getDate()}</span>
+                  </span>
+                  <span className="day-calories">{format(totals.calories)} <span>kcal</span></span>
+                  <MacroBar totals={totals} />
+                  <span className="day-macros">{macroText(totals, true)}</span>
+                </button>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {mealSlots.map((slot) => (
+            <tr key={slot}>
+              <th scope="row">{slot}</th>
+              {days.map(({ date, day, meals }) => (
+                <td key={date} className={date === today ? 'today' : undefined}>
+                  <div className="planner-cell">
+                    {meals.filter((meal) => meal.slot === slot).map((meal) => (
+                      <button key={meal.id} className="planner-meal" onClick={() => onEdit(meal)}>
+                        <span className="meal-name">{meal.name}</span>
+                        <span className="meal-meta">{format(meal.calories)} kcal</span>
+                      </button>
+                    ))}
+                    <button className="planner-add" onClick={() => onAdd({ date, slot })} aria-label={`Dodaj posiłek: ${slot}, ${dateLabel(day)}`}>+ Dodaj</button>
+                  </div>
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
+function DayStrip({ days, today, selectedDate, onSelect }: { days: DaySummary[]; today: string; selectedDate: string; onSelect: (date: string) => void }) {
+  return (
+    <div className="day-strip" role="group" aria-label="Wybór dnia">
+      {days.map(({ date, day, meals }) => (
+        <button key={date} className={[date === selectedDate && 'selected', date === today && 'today'].filter(Boolean).join(' ')} onClick={() => onSelect(date)} aria-pressed={date === selectedDate} aria-current={date === today ? 'date' : undefined} aria-label={`${dateLabel(day)}${meals.length ? `, posiłki: ${meals.length}` : ''}`}>
+          <span className="strip-weekday">{weekdayFormat.format(day)}</span>
+          <span className="strip-number">{day.getDate()}</span>
+          <span className={`strip-dot${meals.length ? ' has-meals' : ''}`} />
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function DayView({ day, isToday, onEdit, onAdd }: { day: DaySummary; isToday: boolean; onEdit: (meal: Meal) => void; onAdd: (slot: MealSlot) => void }) {
+  const { totals } = day
+  return (
+    <section className="day-view" aria-labelledby="selected-day">
+      <div className="day-summary">
+        <h2 id="selected-day">{dateLabel(day.day)}{isToday && ' · dziś'}</h2>
+        <p className="summary-value">{format(totals.calories)} <span>kcal</span></p>
+        <MacroBar totals={totals} />
+        <dl className="day-macros-list">
+          {([['protein', 'Białko'], ['fat', 'Tłuszcze'], ['carbohydrates', 'Węglowodany']] as const).map(([key, label]) => (
+            <div key={key}>
+              <dt><span className={`dot dot-${key}`} aria-hidden="true" />{label}</dt>
+              <dd>{format(totals[key])} g</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+
+      {mealSlots.map((slot) => {
+        const slotMeals = day.meals.filter((meal) => meal.slot === slot)
+        const calories = sumMeals(slotMeals).calories
+        return (
+          <section key={slot} className="meal-group" aria-labelledby={`slot-${slot}`}>
+            <div className="meal-group-header">
+              <h3 id={`slot-${slot}`}>{slot}</h3>
+              {slotMeals.length > 0 && <span>{format(calories)} kcal</span>}
+            </div>
+            {slotMeals.length > 0 && (
+              <ul>
+                {slotMeals.map((meal) => (
+                  <li key={meal.id}>
+                    <button className="meal-row" onClick={() => onEdit(meal)}>
+                      <span className="meal-name">{meal.name}</span>
+                      <span className="meal-meta">{format(meal.calories)} kcal · {macroText(meal)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <button className="meal-group-add" onClick={() => onAdd(slot)} aria-label={`Dodaj posiłek: ${slot}`}>+ Dodaj</button>
+          </section>
+        )
+      })}
+    </section>
+  )
+}
+
 export default App
